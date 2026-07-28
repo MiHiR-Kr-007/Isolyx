@@ -1,7 +1,7 @@
 #include "Parser.hpp"
 #include <sstream>
 
-Command Parser::parseLine(const std::string& input) {
+Command Parser::parseLine(const std::string &input) {
     Command cmd;
     if (input.empty()) {
         return cmd;
@@ -9,7 +9,7 @@ Command Parser::parseLine(const std::string& input) {
 
     std::istringstream stream(input);
     std::string token;
-    
+
     // treats first word as the executable
     if (stream >> token) {
         cmd.executable = token;
@@ -19,7 +19,7 @@ Command Parser::parseLine(const std::string& input) {
     while (stream >> token) {
         if (token == "&") {
             cmd.isBackground = true;
-        }else if (token == ">") {
+        } else if (token == ">") {
             if (stream >> token) {
                 cmd.redirectOutput = token;
             }
@@ -35,14 +35,14 @@ Command Parser::parseLine(const std::string& input) {
     return cmd;
 }
 
-std::vector<Command> Parser::parsePipeline(const std::string& input) {
+std::vector<Command> Parser::parsePipeline(const std::string &input) {
     std::vector<Command> pipeline;
     std::stringstream stream(input);
     std::string segment;
-    
+
     while (std::getline(stream, segment, '|')) {
         pipeline.push_back(parseLine(segment));
     }
-    
+
     return pipeline;
 }

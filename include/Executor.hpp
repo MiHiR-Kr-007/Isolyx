@@ -1,17 +1,19 @@
 #pragma once
 #include "Command.hpp"
+#include "IIsolator.hpp"
+#include <memory>
+#include <vector>
 
 class Executor {
 public:
-    // executes the parsed command.
-    static bool execute(const Command& cmd);
+    explicit Executor(std::unique_ptr<IIsolator> isolator);
 
-    static bool executePipeline(const std::vector<Command>& pipeline);
-
-    // for cleaning finished background process
-    static void reapZombies();
+    bool execute(const Command &cmd);
+    bool executePipeline(const std::vector<Command> &pipeline);
+    void reapZombies();
 
 private:
-    // for built-in commands like 'cd' or 'exit'
-    static bool handleBuiltin(const Command& cmd);
+    std::unique_ptr<IIsolator> isolator_;
+
+    bool handleBuiltin(const Command &cmd);
 };

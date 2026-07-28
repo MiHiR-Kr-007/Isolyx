@@ -1,32 +1,39 @@
-#include <iostream>
-#include <string>
-#include "Parser.hpp"
 #include "Executor.hpp"
+#include "LinuxNamespaceIsolator.hpp"
+#include "Parser.hpp"
+#include "PerLanguageRootfsProvider.hpp"
+#include <iostream>
+#include <memory>
+#include <signal.h>
+#include <string>
+#include <termios.h>
+#include <unistd.h>
 
 int main() {
-    std::cout<<"## Isolyx Engine Started\n";
+    auto rootfs_provider = std::make_unique<PerLanguageRootfsProvider>();
+    auto linux_isolator = std::make_unique<LinuxNamespaceIsolator>(std::move(rootfs_provider));
 
-    std::string inputLine;
+    Executor executor(std::move(linux_isolator));
 
-    // REPL loop
+    struct termios orig_termios;
+    tcgetattr(STDIN_FILENO, &orig_termios);
+    pid_t isolyx_pgid = getpgrp();
+
+    std::string line;
     while (true) {
-
-        Executor::reapZombies();
-
-        std::cout<<"isolyx> ";
-        if (!std::getline(std::cin, inputLine)) {
-            std::cout<<"\n";
-            break; 
-        }
-
-        std::vector<Command> pipeline = Parser::parsePipeline(inputLine);
-        bool shouldContinue = Executor::executePipeline(pipeline);
-
-        if (!shouldContinue) {
+        std::cout << "isolyx> ";
+        if (!std::getline(std::cin, line))
             break;
+
+        Command cmd = Parser::parseLine(line);
+        if (!cmd.isEmpty()) {
+            executor.execute(cmd);
+
+            signal(SIGTTOU, SIG_IGN);
+            tcsetpgrp(STDIN_FILENO, isolyx_pgid);
+            tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
+            signal(SIGTTOU, SIG_DFL);
         }
     }
-
-    std::cout<<"[Isolyx] Engine shutting down.\n";
     return 0;
 }

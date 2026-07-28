@@ -3,5 +3,7 @@
 *.a
 
 build/
-
 .vscode/
+.cache/
+rootfs_base/
+compile_commands.json
