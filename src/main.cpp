@@ -10,15 +10,17 @@ int main() {
 
     // REPL loop
     while (true) {
-        std::cout << "isolyx> ";
+
+        Executor::reapZombies();
+
+        std::cout<<"isolyx> ";
         if (!std::getline(std::cin, inputLine)) {
             std::cout<<"\n";
             break; 
         }
 
-        Command cmd = Parser::parseLine(inputLine);
-
-        bool shouldContinue = Executor::execute(cmd);
+        std::vector<Command> pipeline = Parser::parsePipeline(inputLine);
+        bool shouldContinue = Executor::executePipeline(pipeline);
 
         if (!shouldContinue) {
             break;

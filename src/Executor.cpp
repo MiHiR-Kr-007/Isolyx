@@ -3,6 +3,7 @@
 #include <unistd.h>     
 #include <sys/wait.h>  
 #include <vector>
+#include <fcntl.h>
 
 bool Executor::handleBuiltin(const Command& cmd) {
     if (cmd.executable == "exit") {
@@ -40,6 +41,26 @@ bool Executor::execute(const Command& cmd) {
     if (pid == 0) {
         // child process
 
+        if (!cmd.redirectOutput.empty()) {
+            int fdOut = open(cmd.redirectOutput.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fdOut < 0) {
+                perror("Failed to open output file");
+                exit(1);
+            }
+            dup2(fdOut, STDOUT_FILENO); 
+            close(fdOut);
+        }
+
+        if (!cmd.redirectInput.empty()) {
+            int fdIn = open(cmd.redirectInput.c_str(), O_RDONLY);
+            if (fdIn < 0) {
+                perror("Failed to open input file");
+                exit(1);
+            }
+            dup2(fdIn, STDIN_FILENO);
+            close(fdIn);
+        }
+
         // converting vector of strings into a array of char pointers
         std::vector<char*> c_args;
         for (const auto& arg : cmd.arguments) {
@@ -64,4 +85,97 @@ bool Executor::execute(const Command& cmd) {
     }
 
     return true; 
+}
+
+void Executor::reapZombies() {
+    int status;
+    pid_t result;
+    
+    while ((result = waitpid(-1, &status, WNOHANG)) > 0) {
+        std::cout << "[Background process " << result << " finished]\n";
+    }
+}
+
+bool Executor::executePipeline(const std::vector<Command>& pipeline) {
+    if (pipeline.empty()) return true;
+    
+    if (pipeline.size() == 1) {
+        return execute(pipeline[0]);
+    }
+
+    int prev_fd = -1; 
+    std::vector<pid_t> children;
+
+    for (size_t i = 0; i < pipeline.size(); ++i) {
+        const Command& cmd = pipeline[i];
+        int fd[2];
+
+        if (i < pipeline.size() - 1) {
+            if (pipe(fd) < 0) {
+                perror("Pipe failed");
+                return true;
+            }
+        }
+
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("Fork failed");
+            return true;
+        }
+
+        if (pid == 0) {
+            // child process
+
+            if (i > 0) {
+                dup2(prev_fd, STDIN_FILENO);
+                close(prev_fd);
+            }
+
+            if (i < pipeline.size() - 1) {
+                dup2(fd[1], STDOUT_FILENO);
+                close(fd[1]);
+                close(fd[0]); 
+            }
+
+            if (!cmd.redirectOutput.empty()) {
+                int fdOut = open(cmd.redirectOutput.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                dup2(fdOut, STDOUT_FILENO);
+                close(fdOut);
+            }
+            if (!cmd.redirectInput.empty()) {
+                int fdIn = open(cmd.redirectInput.c_str(), O_RDONLY);
+                dup2(fdIn, STDIN_FILENO);
+                close(fdIn);
+            }
+
+            std::vector<char*> c_args;
+            for (const auto& arg : cmd.arguments) c_args.push_back(const_cast<char*>(arg.c_str()));
+            c_args.push_back(nullptr);
+            
+            execvp(c_args[0], c_args.data());
+            std::cerr << "Command not found: " << cmd.executable << "\n";
+            exit(1);
+        } else {
+            // parent
+            children.push_back(pid);
+
+            if (i > 0) {
+                close(prev_fd);
+            }
+
+            if (i < pipeline.size() - 1) {
+                prev_fd = fd[0];
+                close(fd[1]); 
+            }
+        }
+    }
+
+    if (!pipeline.back().isBackground) {
+        for (pid_t pid : children) {
+            int status;
+            waitpid(pid, &status, 0);
+        }
+    }
+
+    return true;
 }
