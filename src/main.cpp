@@ -2,6 +2,7 @@
 #include "LinuxNamespaceIsolator.hpp"
 #include "Parser.hpp"
 #include "PerLanguageRootfsProvider.hpp"
+#include "CgroupV2Limiter.hpp"
 #include <iostream>
 #include <memory>
 #include <signal.h>
@@ -13,7 +14,13 @@ int main() {
     auto rootfs_provider = std::make_unique<PerLanguageRootfsProvider>();
     auto linux_isolator = std::make_unique<LinuxNamespaceIsolator>(std::move(rootfs_provider));
 
-    Executor executor(std::move(linux_isolator));
+    ResourceLimiterFactory limiter_factory = []() {
+        // 50% CPU, 50MB RAM, 20 PIDs
+        // 50% CPU = 50000us per 100000us period
+        return std::make_unique<CgroupV2Limiter>(50000, 100000, 50 * 1024 * 1024, 20);
+    };
+
+    Executor executor(std::move(linux_isolator), std::move(limiter_factory));
 
     struct termios orig_termios;
     tcgetattr(STDIN_FILENO, &orig_termios);

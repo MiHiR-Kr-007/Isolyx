@@ -5,7 +5,8 @@
 #include <unistd.h>
 #include <vector>
 
-Executor::Executor(std::unique_ptr<IIsolator> isolator) : isolator_(std::move(isolator)) {}
+Executor::Executor(std::unique_ptr<IIsolator> isolator, ResourceLimiterFactory limiter_factory)
+    : isolator_(std::move(isolator)), limiter_factory_(std::move(limiter_factory)) {}
 
 bool Executor::execute(const Command &cmd) {
     if (cmd.isEmpty())
@@ -14,7 +15,9 @@ bool Executor::execute(const Command &cmd) {
     if (cmd.executable == "cd" || cmd.executable == "exit") {
         return handleBuiltin(cmd);
     }
-    int exit_code = isolator_->isolateAndRun(cmd);
+    
+    auto limiter = limiter_factory_ ? limiter_factory_() : nullptr;
+    int exit_code = isolator_->isolateAndRun(cmd, limiter.get());
 
     return exit_code == 0;
 }

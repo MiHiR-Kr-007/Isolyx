@@ -110,7 +110,7 @@ static int child_entry(void *arg) {
 LinuxNamespaceIsolator::LinuxNamespaceIsolator(std::unique_ptr<IRootfsProvider> rootfs_provider)
     : rootfs_provider_(std::move(rootfs_provider)) {}
 
-int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd) {
+int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter* limiter) {
     if (cmd.isEmpty())
         return -1;
 
@@ -146,6 +146,10 @@ int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd) {
     if (child_pid == -1) {
         perror("[Isolyx] clone() failed");
         return -1;
+    }
+
+    if (limiter) {
+        limiter->applyToPid(child_pid);
     }
 
     close(sync_pipe[0]);
