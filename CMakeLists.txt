@@ -13,6 +13,7 @@ add_executable(isolyx
     src/LinuxNamespaceIsolator.cpp
     src/PerLanguageRootfsProvider.cpp
     src/CgroupV2Limiter.cpp
+    src/TimeoutWatchdog.cpp
 )
 
 target_include_directories(isolyx PRIVATE ${CMAKE_SOURCE_DIR}/include)

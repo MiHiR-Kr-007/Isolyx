@@ -3,6 +3,7 @@
 #include "Parser.hpp"
 #include "PerLanguageRootfsProvider.hpp"
 #include "CgroupV2Limiter.hpp"
+#include "TimeoutWatchdog.hpp"
 #include <iostream>
 #include <memory>
 #include <signal.h>
@@ -20,7 +21,12 @@ int main() {
         return std::make_unique<CgroupV2Limiter>(50000, 100000, 50 * 1024 * 1024, 20);
     };
 
-    Executor executor(std::move(linux_isolator), std::move(limiter_factory));
+    WatchdogFactory watchdog_factory = []() {
+        // 2 seconds clock timeout
+        return std::make_unique<TimeoutWatchdog>(std::chrono::milliseconds(2000));
+    };
+
+    Executor executor(std::move(linux_isolator), std::move(limiter_factory), std::move(watchdog_factory));
 
     struct termios orig_termios;
     tcgetattr(STDIN_FILENO, &orig_termios);

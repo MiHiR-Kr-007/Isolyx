@@ -101,6 +101,8 @@ static int child_entry(void *arg) {
 
     setenv("PATH", "/bin:/usr/bin:/sbin:/usr/sbin", 1);
 
+    setpgid(0, 0);
+
     execvp(args->executable, args->argv);
 
     perror("[Isolyx Child] execvp failed");
@@ -110,7 +112,7 @@ static int child_entry(void *arg) {
 LinuxNamespaceIsolator::LinuxNamespaceIsolator(std::unique_ptr<IRootfsProvider> rootfs_provider)
     : rootfs_provider_(std::move(rootfs_provider)) {}
 
-int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter* limiter) {
+int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter *limiter, IWatchdog *watchdog) {
     if (cmd.isEmpty())
         return -1;
 
@@ -150,6 +152,10 @@ int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter* 
 
     if (limiter) {
         limiter->applyToPid(child_pid);
+    }
+
+    if (watchdog) {
+        watchdog->start(child_pid);
     }
 
     close(sync_pipe[0]);
@@ -201,6 +207,10 @@ int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter* 
     if (waitpid(child_pid, &status, 0) == -1) {
         perror("[Isolyx] waitpid() failed");
         return -1;
+    }
+
+    if (watchdog) {
+        watchdog->stop();
     }
 
     rootfs_provider_->teardownRootfs();
