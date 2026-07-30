@@ -4,12 +4,16 @@
 #include "PerLanguageRootfsProvider.hpp"
 #include "CgroupV2Limiter.hpp"
 #include "TimeoutWatchdog.hpp"
+#include "InMemoryJobQueue.hpp"
+#include "FCFSScheduler.hpp"
+#include "WorkerPool.hpp"
 #include <iostream>
 #include <memory>
 #include <signal.h>
 #include <string>
 #include <termios.h>
 #include <unistd.h>
+#include <future>
 
 int main() {
     auto rootfs_provider = std::make_unique<PerLanguageRootfsProvider>();
@@ -28,9 +32,18 @@ int main() {
 
     Executor executor(std::move(linux_isolator), std::move(limiter_factory), std::move(watchdog_factory));
 
+    auto scheduler = std::make_unique<FCFSScheduler>();
+    InMemoryJobQueue job_queue(std::move(scheduler));
+
+    // pool with 4 worker threads for now...
+    WorkerPool worker_pool(4, job_queue, executor);
+    worker_pool.start();
+
     struct termios orig_termios;
     tcgetattr(STDIN_FILENO, &orig_termios);
     pid_t isolyx_pgid = getpgrp();
+
+    uint64_t next_job_id = 1;
 
     std::string line;
     while (true) {
@@ -40,7 +53,21 @@ int main() {
 
         Command cmd = Parser::parseLine(line);
         if (!cmd.isEmpty()) {
-            executor.execute(cmd);
+            if (cmd.executable == "cd" || cmd.executable == "exit") {
+                executor.execute(cmd);
+            } else {
+                auto promise = std::make_shared<std::promise<int>>();
+                std::future<int> future = promise->get_future();
+
+                Job job{next_job_id++, cmd, promise};
+                job_queue.enqueue(std::move(job));
+
+                if (!cmd.isBackground) {
+                    future.wait();
+                } else {
+                    std::cout << "[Background job " << (next_job_id - 1) << " submitted]\n";
+                }
+            }
 
             signal(SIGTTOU, SIG_IGN);
             tcsetpgrp(STDIN_FILENO, isolyx_pgid);
@@ -48,5 +75,7 @@ int main() {
             signal(SIGTTOU, SIG_DFL);
         }
     }
+
+    worker_pool.stop();
     return 0;
 }
