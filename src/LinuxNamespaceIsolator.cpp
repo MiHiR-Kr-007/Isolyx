@@ -121,10 +121,11 @@ static int child_entry(void *arg) {
 LinuxNamespaceIsolator::LinuxNamespaceIsolator(std::unique_ptr<IRootfsProvider> rootfs_provider)
     : rootfs_provider_(std::move(rootfs_provider)) {}
 
-int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter *limiter, IWatchdog *watchdog,
+ExecutionResult LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter *limiter, IWatchdog *watchdog,
                                           ISecurityPolicy *sec_policy) {
+    ExecutionResult result;
     if (cmd.isEmpty())
-        return -1;
+        return result;
 
     std::vector<char *> raw_args;
     for (const auto &arg : cmd.arguments) {
@@ -137,7 +138,7 @@ int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter *
     int sync_pipe[2];
     if (pipe(sync_pipe) == -1) {
         perror("[Isolyx] pipe() failed");
-        return -1;
+        return result;
     }
 
     CloneArgs c_args;
@@ -158,7 +159,7 @@ int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter *
 
     if (child_pid == -1) {
         perror("[Isolyx] clone() failed");
-        return -1;
+        return result;
     }
 
     if (limiter) {
@@ -217,7 +218,7 @@ int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter *
     int status;
     if (waitpid(child_pid, &status, 0) == -1) {
         perror("[Isolyx] waitpid() failed");
-        return -1;
+        return result;
     }
 
     if (watchdog) {
@@ -227,7 +228,11 @@ int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter *
     rootfs_provider_->teardownRootfs();
 
     if (WIFEXITED(status)) {
-        return WEXITSTATUS(status);
+        result.exit_code = WEXITSTATUS(status);
+        result.success = (result.exit_code == 0);
+    } else if (WIFSIGNALED(status)) {
+        result.term_signal = WTERMSIG(status);
+        result.success = false;
     }
-    return -1;
+    return result;
 }

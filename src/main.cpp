@@ -8,6 +8,8 @@
 #include "InMemoryJobQueue.hpp"
 #include "FCFSScheduler.hpp"
 #include "WorkerPool.hpp"
+#include "ResultCollector.hpp"
+#include "LoggingObserver.hpp"
 #include <iostream>
 #include <memory>
 #include <signal.h>
@@ -41,7 +43,10 @@ int main() {
     InMemoryJobQueue job_queue(std::move(scheduler));
 
     // pool with 4 worker threads for now...
-    WorkerPool worker_pool(4, job_queue, executor);
+    ResultCollector result_collector;
+    result_collector.addObserver(std::make_unique<LoggingObserver>());
+
+    WorkerPool worker_pool(4, job_queue, executor, result_collector);
     worker_pool.start();
 
     struct termios orig_termios;

@@ -8,20 +8,23 @@
 Executor::Executor(std::unique_ptr<IIsolator> isolator, ResourceLimiterFactory limiter_factory, WatchdogFactory watchdog_factory, SecurityPolicyFactory sec_policy_factory)
     : isolator_(std::move(isolator)), limiter_factory_(std::move(limiter_factory)), watchdog_factory_(std::move(watchdog_factory)), sec_policy_factory_(std::move(sec_policy_factory)) {}
 
-bool Executor::execute(const Command &cmd) {
-    if (cmd.isEmpty())
-        return true;
+ExecutionResult Executor::execute(const Command &cmd) {
+    ExecutionResult result;
+    if (cmd.isEmpty()) {
+        result.success = true;
+        return result;
+    }
 
     if (cmd.executable == "cd" || cmd.executable == "exit") {
-        return handleBuiltin(cmd);
+        result.success = handleBuiltin(cmd);
+        result.exit_code = result.success ? 0 : 1;
+        return result;
     }
     
     auto limiter = limiter_factory_ ? limiter_factory_() : nullptr;
     auto watchdog = watchdog_factory_ ? watchdog_factory_() : nullptr;
     auto sec_policy = sec_policy_factory_ ? sec_policy_factory_() : nullptr;
-    int exit_code = isolator_->isolateAndRun(cmd, limiter.get(), watchdog.get(), sec_policy.get());
-
-    return exit_code == 0;
+    return isolator_->isolateAndRun(cmd, limiter.get(), watchdog.get(), sec_policy.get());
 }
 
 bool Executor::handleBuiltin(const Command &cmd) {
@@ -48,9 +51,11 @@ void Executor::reapZombies() {
     }
 }
 
-bool Executor::executePipeline(const std::vector<Command> &pipeline) {
+ExecutionResult Executor::executePipeline(const std::vector<Command> &pipeline) {
+    ExecutionResult result;
+    result.success = true;
     if (pipeline.empty())
-        return true;
+        return result;
 
     if (pipeline.size() == 1) {
         return execute(pipeline[0]);
@@ -66,14 +71,16 @@ bool Executor::executePipeline(const std::vector<Command> &pipeline) {
         if (i < pipeline.size() - 1) {
             if (pipe(fd) < 0) {
                 perror("Pipe failed");
-                return true;
+                result.success = false;
+                return result;
             }
         }
 
         pid_t pid = fork();
         if (pid < 0) {
             perror("Fork failed");
-            return true;
+            result.success = false;
+            return result;
         }
 
         if (pid == 0) {
@@ -128,8 +135,17 @@ bool Executor::executePipeline(const std::vector<Command> &pipeline) {
         for (pid_t pid : children) {
             int status;
             waitpid(pid, &status, 0);
+            if (pid == children.back()) {
+                if (WIFEXITED(status)) {
+                    result.exit_code = WEXITSTATUS(status);
+                    result.success = (result.exit_code == 0);
+                } else if (WIFSIGNALED(status)) {
+                    result.term_signal = WTERMSIG(status);
+                    result.success = false;
+                }
+            }
         }
     }
 
-    return true;
+    return result;
 }

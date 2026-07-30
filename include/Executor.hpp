@@ -18,8 +18,8 @@ public:
              WatchdogFactory watchdog_factory = nullptr,
              SecurityPolicyFactory sec_policy_factory = nullptr);
 
-    bool execute(const Command &cmd);
-    bool executePipeline(const std::vector<Command> &pipeline);
+    ExecutionResult execute(const Command &cmd);
+    ExecutionResult executePipeline(const std::vector<Command> &pipeline);
     void reapZombies();
 
 private:

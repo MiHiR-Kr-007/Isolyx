@@ -18,6 +18,8 @@ add_executable(isolyx
     src/InMemoryJobQueue.cpp
     src/WorkerPool.cpp
     src/SeccompDenylistPolicy.cpp
+    src/LoggingObserver.cpp
+    src/ResultCollector.cpp
 )
 
 target_link_libraries(isolyx seccomp)
