@@ -9,10 +9,14 @@
 
 using ResourceLimiterFactory = std::function<std::unique_ptr<IResourceLimiter>()>;
 using WatchdogFactory = std::function<std::unique_ptr<IWatchdog>()>;
+using SecurityPolicyFactory = std::function<std::unique_ptr<ISecurityPolicy>()>;
 
 class Executor {
 public:
-    Executor(std::unique_ptr<IIsolator> isolator, ResourceLimiterFactory limiter_factory = nullptr, WatchdogFactory watchdog_factory = nullptr);
+    Executor(std::unique_ptr<IIsolator> isolator, 
+             ResourceLimiterFactory limiter_factory = nullptr, 
+             WatchdogFactory watchdog_factory = nullptr,
+             SecurityPolicyFactory sec_policy_factory = nullptr);
 
     bool execute(const Command &cmd);
     bool executePipeline(const std::vector<Command> &pipeline);
@@ -22,6 +26,7 @@ private:
     std::unique_ptr<IIsolator> isolator_;
     ResourceLimiterFactory limiter_factory_;
     WatchdogFactory watchdog_factory_;
+    SecurityPolicyFactory sec_policy_factory_;
 
     bool handleBuiltin(const Command &cmd);
 };

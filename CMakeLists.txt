@@ -14,6 +14,12 @@ add_executable(isolyx
     src/PerLanguageRootfsProvider.cpp
     src/CgroupV2Limiter.cpp
     src/TimeoutWatchdog.cpp
+    src/FCFSScheduler.cpp
+    src/InMemoryJobQueue.cpp
+    src/WorkerPool.cpp
+    src/SeccompDenylistPolicy.cpp
 )
+
+target_link_libraries(isolyx seccomp)
 
 target_include_directories(isolyx PRIVATE ${CMAKE_SOURCE_DIR}/include)

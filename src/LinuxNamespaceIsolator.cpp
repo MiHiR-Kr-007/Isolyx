@@ -10,6 +10,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
+#include <seccomp.h>
 
 struct CloneArgs {
     const char *executable;
@@ -18,6 +19,7 @@ struct CloneArgs {
     const char *input_file;
     const char *output_file;
     int sync_fd;
+    scmp_filter_ctx seccomp_ctx;
 };
 
 #include <stdio.h>
@@ -103,6 +105,13 @@ static int child_entry(void *arg) {
 
     setpgid(0, 0);
 
+    if (args->seccomp_ctx != nullptr) {
+        if (seccomp_load(args->seccomp_ctx) < 0) {
+            perror("[Isolyx Child] seccomp_load failed");
+            return -1;
+        }
+    }
+
     execvp(args->executable, args->argv);
 
     perror("[Isolyx Child] execvp failed");
@@ -112,7 +121,8 @@ static int child_entry(void *arg) {
 LinuxNamespaceIsolator::LinuxNamespaceIsolator(std::unique_ptr<IRootfsProvider> rootfs_provider)
     : rootfs_provider_(std::move(rootfs_provider)) {}
 
-int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter *limiter, IWatchdog *watchdog) {
+int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter *limiter, IWatchdog *watchdog,
+                                          ISecurityPolicy *sec_policy) {
     if (cmd.isEmpty())
         return -1;
 
@@ -137,6 +147,7 @@ int LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter *
     c_args.output_file = cmd.redirectOutput.empty() ? nullptr : cmd.redirectOutput.c_str();
     c_args.input_file = cmd.redirectInput.empty() ? nullptr : cmd.redirectInput.c_str();
     c_args.sync_fd = sync_pipe[0];
+    c_args.seccomp_ctx = sec_policy ? sec_policy->getContext() : nullptr;
 
     auto stack = std::make_unique<char[]>(STACK_SIZE);
     char *stack_top = stack.get() + STACK_SIZE;

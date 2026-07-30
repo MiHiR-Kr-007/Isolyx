@@ -4,6 +4,7 @@
 #include "PerLanguageRootfsProvider.hpp"
 #include "CgroupV2Limiter.hpp"
 #include "TimeoutWatchdog.hpp"
+#include "SeccompDenylistPolicy.hpp"
 #include "InMemoryJobQueue.hpp"
 #include "FCFSScheduler.hpp"
 #include "WorkerPool.hpp"
@@ -30,7 +31,11 @@ int main() {
         return std::make_unique<TimeoutWatchdog>(std::chrono::milliseconds(2000));
     };
 
-    Executor executor(std::move(linux_isolator), std::move(limiter_factory), std::move(watchdog_factory));
+    SecurityPolicyFactory sec_policy_factory = []() {
+        return std::make_unique<SeccompDenylistPolicy>();
+    };
+
+    Executor executor(std::move(linux_isolator), std::move(limiter_factory), std::move(watchdog_factory), std::move(sec_policy_factory));
 
     auto scheduler = std::make_unique<FCFSScheduler>();
     InMemoryJobQueue job_queue(std::move(scheduler));
