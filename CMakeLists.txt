@@ -24,6 +24,8 @@ add_executable(isolyx
     src/LoggingObserver.cpp
     src/DashboardObserver.cpp
     src/ResultCollector.cpp
+    src/CompositeWatchdog.cpp
+    src/AnomalyWatchdog.cpp
 )
 
 target_link_libraries(isolyx seccomp)
@@ -48,6 +50,8 @@ add_executable(isolyx_benchmark
     src/LoggingObserver.cpp
     src/DashboardObserver.cpp
     src/ResultCollector.cpp
+    src/CompositeWatchdog.cpp
+    src/AnomalyWatchdog.cpp
 )
 target_include_directories(isolyx_benchmark PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(isolyx_benchmark seccomp)

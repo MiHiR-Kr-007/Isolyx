@@ -12,6 +12,8 @@
 #include "LoggingObserver.hpp"
 #include "Job.hpp"
 #include "DashboardObserver.hpp"
+#include "CompositeWatchdog.hpp"
+#include "AnomalyWatchdog.hpp"
 #include <iostream>
 #include <memory>
 #include <signal.h>
@@ -26,13 +28,15 @@ int main() {
 
     ResourceLimiterFactory limiter_factory = []() {
         // 50% CPU, 50MB RAM, 20 PIDs
-        // 50% CPU = 50000us per 100000us period
         return std::make_unique<CgroupV2Limiter>(50000, 100000, 50 * 1024 * 1024, 20);
     };
 
     WatchdogFactory watchdog_factory = []() {
+        auto composite = std::make_unique<CompositeWatchdog>();
         // 2 seconds clock timeout
-        return std::make_unique<TimeoutWatchdog>(std::chrono::milliseconds(2000));
+        composite->addWatchdog(std::make_unique<TimeoutWatchdog>(std::chrono::milliseconds(2000)));
+        composite->addWatchdog(std::make_unique<AnomalyWatchdog>());
+        return composite;
     };
 
     SecurityPolicyFactory sec_policy_factory = []() {
