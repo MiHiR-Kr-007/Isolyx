@@ -9,3 +9,5 @@ rootfs_base/
 compile_commands.json
 __pycache__/
 *.pyc   
+
+node_modules/

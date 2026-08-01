@@ -10,6 +10,8 @@
 #include "WorkerPool.hpp"
 #include "ResultCollector.hpp"
 #include "LoggingObserver.hpp"
+#include "Job.hpp"
+#include "DashboardObserver.hpp"
 #include <iostream>
 #include <memory>
 #include <signal.h>
@@ -45,6 +47,7 @@ int main() {
     // pool with 4 worker threads for now...
     ResultCollector result_collector;
     result_collector.addObserver(std::make_unique<LoggingObserver>());
+    result_collector.addObserver(std::make_unique<DashboardObserver>("/tmp/isolyx_events"));
 
     WorkerPool worker_pool(4, job_queue, executor, result_collector);
     worker_pool.start();

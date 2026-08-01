@@ -22,6 +22,7 @@ add_executable(isolyx
     src/WorkerPool.cpp
     src/SeccompDenylistPolicy.cpp
     src/LoggingObserver.cpp
+    src/DashboardObserver.cpp
     src/ResultCollector.cpp
 )
 
@@ -45,6 +46,7 @@ add_executable(isolyx_benchmark
     src/WorkerPool.cpp
     src/SeccompDenylistPolicy.cpp
     src/LoggingObserver.cpp
+    src/DashboardObserver.cpp
     src/ResultCollector.cpp
 )
 target_include_directories(isolyx_benchmark PRIVATE ${CMAKE_SOURCE_DIR}/include)
