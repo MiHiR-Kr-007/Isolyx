@@ -33,7 +33,13 @@ void WorkerPool::workerLoop() {
             break;
         }
 
-        ExecutionResult exec_result = executor_.execute(job_opt->cmd);
+        ExecutionResult exec_result = executor_.execute(*job_opt);
+
+        if (exec_result.preempted) {
+            job_opt->elapsed_bursts++;
+            job_queue_.enqueue(std::move(*job_opt));
+            continue; // Do not submit result or fulfill promise yet
+        }
 
         JobResult job_result;
         job_result.job_id = job_opt->id;

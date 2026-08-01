@@ -121,118 +121,162 @@ static int child_entry(void *arg) {
 LinuxNamespaceIsolator::LinuxNamespaceIsolator(std::unique_ptr<IRootfsProvider> rootfs_provider)
     : rootfs_provider_(std::move(rootfs_provider)) {}
 
-ExecutionResult LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, IResourceLimiter *limiter, IWatchdog *watchdog,
-                                          ISecurityPolicy *sec_policy) {
+ExecutionResult LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, pid_t& pid, int time_quantum, IResourceLimiter *limiter, IWatchdog *watchdog, ISecurityPolicy *sec_policy) {
     ExecutionResult result;
     if (cmd.isEmpty())
         return result;
 
-    std::vector<char *> raw_args;
-    for (const auto &arg : cmd.arguments) {
-        raw_args.push_back(const_cast<char *>(arg.c_str()));
-    }
-    raw_args.push_back(nullptr);
+    if (pid <= 0) {
+        std::vector<char *> raw_args;
+        for (const auto &arg : cmd.arguments) {
+            raw_args.push_back(const_cast<char *>(arg.c_str()));
+        }
+        raw_args.push_back(nullptr);
 
-    std::string absolute_rootfs = rootfs_provider_->prepareRootfs();
+        std::string absolute_rootfs = rootfs_provider_->prepareRootfs();
 
-    int sync_pipe[2];
-    if (pipe(sync_pipe) == -1) {
-        perror("[Isolyx] pipe() failed");
-        return result;
-    }
+        int sync_pipe[2];
+        if (pipe(sync_pipe) == -1) {
+            perror("[Isolyx] pipe() failed");
+            return result;
+        }
 
-    CloneArgs c_args;
-    c_args.executable = cmd.executable.c_str();
-    c_args.argv = raw_args.data();
-    c_args.rootfs_path = absolute_rootfs.c_str();
-    c_args.output_file = cmd.redirectOutput.empty() ? nullptr : cmd.redirectOutput.c_str();
-    c_args.input_file = cmd.redirectInput.empty() ? nullptr : cmd.redirectInput.c_str();
-    c_args.sync_fd = sync_pipe[0];
-    c_args.seccomp_ctx = sec_policy ? sec_policy->getContext() : nullptr;
+        CloneArgs c_args;
+        c_args.executable = cmd.executable.c_str();
+        c_args.argv = raw_args.data();
+        c_args.rootfs_path = absolute_rootfs.c_str();
+        c_args.output_file = cmd.redirectOutput.empty() ? nullptr : cmd.redirectOutput.c_str();
+        c_args.input_file = cmd.redirectInput.empty() ? nullptr : cmd.redirectInput.c_str();
+        c_args.sync_fd = sync_pipe[0];
+        c_args.seccomp_ctx = sec_policy ? sec_policy->getContext() : nullptr;
 
-    auto stack = std::make_unique<char[]>(STACK_SIZE);
-    char *stack_top = stack.get() + STACK_SIZE;
+        auto stack = std::make_unique<char[]>(STACK_SIZE);
+        char *stack_top = stack.get() + STACK_SIZE;
 
-    int flags = CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWNS | CLONE_NEWUSER | CLONE_NEWIPC | SIGCHLD;
+        int flags = CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWNS | CLONE_NEWUSER | CLONE_NEWIPC | SIGCHLD;
 
-    pid_t child_pid = clone(child_entry, stack_top, flags, &c_args);
+        pid_t child_pid = clone(child_entry, stack_top, flags, &c_args);
 
-    if (child_pid == -1) {
-        perror("[Isolyx] clone() failed");
-        return result;
-    }
+        if (child_pid == -1) {
+            perror("[Isolyx] clone() failed");
+            return result;
+        }
 
-    if (limiter) {
-        limiter->applyToPid(child_pid);
-    }
+        pid = child_pid;
 
-    if (watchdog) {
-        watchdog->start(child_pid);
-    }
+        if (limiter) {
+            limiter->applyToPid(child_pid);
+        }
 
-    close(sync_pipe[0]);
+        if (watchdog) {
+            watchdog->start(child_pid);
+        }
 
-    uid_t host_uid = getuid();
-    gid_t host_gid = getgid();
-    if (const char *sudo_uid = getenv("SUDO_UID")) {
-        host_uid = std::stoi(sudo_uid);
-    }
-    if (const char *sudo_gid = getenv("SUDO_GID")) {
-        host_gid = std::stoi(sudo_gid);
-    }
+        close(sync_pipe[0]);
 
-    char map_buf[100];
-    snprintf(map_buf, sizeof(map_buf), "0 %d 1\n", host_uid);
+        uid_t host_uid = getuid();
+        gid_t host_gid = getgid();
+        if (const char *sudo_uid = getenv("SUDO_UID")) {
+            host_uid = std::stoi(sudo_uid);
+        }
+        if (const char *sudo_gid = getenv("SUDO_GID")) {
+            host_gid = std::stoi(sudo_gid);
+        }
 
-    std::string uid_map_path = "/proc/" + std::to_string(child_pid) + "/uid_map";
-    int fd = open(uid_map_path.c_str(), O_WRONLY);
-    if (fd != -1) {
-        write(fd, map_buf, strlen(map_buf));
-        close(fd);
+        char map_buf[100];
+        snprintf(map_buf, sizeof(map_buf), "0 %d 1\n", host_uid);
+
+        std::string uid_map_path = "/proc/" + std::to_string(child_pid) + "/uid_map";
+        int fd = open(uid_map_path.c_str(), O_WRONLY);
+        if (fd != -1) {
+            write(fd, map_buf, strlen(map_buf));
+            close(fd);
+        } else {
+            perror("[Isolyx] failed to write uid_map");
+        }
+
+        std::string setgroups_path = "/proc/" + std::to_string(child_pid) + "/setgroups";
+        fd = open(setgroups_path.c_str(), O_WRONLY);
+        if (fd != -1) {
+            write(fd, "deny", 4);
+            close(fd);
+        }
+
+        snprintf(map_buf, sizeof(map_buf), "0 %d 1\n", host_gid);
+        std::string gid_map_path = "/proc/" + std::to_string(child_pid) + "/gid_map";
+        fd = open(gid_map_path.c_str(), O_WRONLY);
+        if (fd != -1) {
+            write(fd, map_buf, strlen(map_buf));
+            close(fd);
+        } else {
+            perror("[Isolyx] failed to write gid_map");
+        }
+
+        if (write(sync_pipe[1], "1", 1) != 1) {
+            perror("[Isolyx] failed to write to sync pipe");
+        }
+        close(sync_pipe[1]);
     } else {
-        perror("[Isolyx] failed to write uid_map");
+        // Process already exists, just resume it
+        kill(-pid, SIGCONT);
     }
-
-    std::string setgroups_path = "/proc/" + std::to_string(child_pid) + "/setgroups";
-    fd = open(setgroups_path.c_str(), O_WRONLY);
-    if (fd != -1) {
-        write(fd, "deny", 4);
-        close(fd);
-    }
-
-    snprintf(map_buf, sizeof(map_buf), "0 %d 1\n", host_gid);
-    std::string gid_map_path = "/proc/" + std::to_string(child_pid) + "/gid_map";
-    fd = open(gid_map_path.c_str(), O_WRONLY);
-    if (fd != -1) {
-        write(fd, map_buf, strlen(map_buf));
-        close(fd);
-    } else {
-        perror("[Isolyx] failed to write gid_map");
-    }
-
-    if (write(sync_pipe[1], "1", 1) != 1) {
-        perror("[Isolyx] failed to write to sync pipe");
-    }
-    close(sync_pipe[1]);
 
     int status;
-    if (waitpid(child_pid, &status, 0) == -1) {
-        perror("[Isolyx] waitpid() failed");
-        return result;
+    bool finished = false;
+
+    if (time_quantum > 0) {
+        int elapsed_ms = 0;
+        while (true) {
+            pid_t w = waitpid(pid, &status, WNOHANG | WUNTRACED);
+            if (w == pid) {
+                if (WIFEXITED(status)) {
+                    result.exit_code = WEXITSTATUS(status);
+                    result.success = (result.exit_code == 0);
+                    finished = true;
+                    break;
+                } else if (WIFSIGNALED(status)) {
+                    result.term_signal = WTERMSIG(status);
+                    result.success = false;
+                    finished = true;
+                    break;
+                } else if (WIFSTOPPED(status)) {
+                    result.preempted = true;
+                    finished = true;
+                    break;
+                }
+            } else if (w == -1) {
+                perror("[Isolyx] waitpid() failed");
+                return result;
+            }
+
+            if (elapsed_ms >= time_quantum) {
+                kill(-pid, SIGSTOP); // Send STOP to process group
+            } else {
+                usleep(1000);
+                elapsed_ms++;
+            }
+        }
+    } else {
+        if (waitpid(pid, &status, 0) == -1) {
+            perror("[Isolyx] waitpid() failed");
+            return result;
+        }
+        finished = true;
+        if (WIFEXITED(status)) {
+            result.exit_code = WEXITSTATUS(status);
+            result.success = (result.exit_code == 0);
+        } else if (WIFSIGNALED(status)) {
+            result.term_signal = WTERMSIG(status);
+            result.success = false;
+        }
     }
 
-    if (watchdog) {
-        watchdog->stop();
+    if (finished && !result.preempted) {
+        if (watchdog) {
+            watchdog->stop();
+        }
+        rootfs_provider_->teardownRootfs();
     }
 
-    rootfs_provider_->teardownRootfs();
-
-    if (WIFEXITED(status)) {
-        result.exit_code = WEXITSTATUS(status);
-        result.success = (result.exit_code == 0);
-    } else if (WIFSIGNALED(status)) {
-        result.term_signal = WTERMSIG(status);
-        result.success = false;
-    }
     return result;
 }

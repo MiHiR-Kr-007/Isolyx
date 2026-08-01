@@ -8,15 +8,15 @@
 Executor::Executor(std::unique_ptr<IIsolator> isolator, ResourceLimiterFactory limiter_factory, WatchdogFactory watchdog_factory, SecurityPolicyFactory sec_policy_factory)
     : isolator_(std::move(isolator)), limiter_factory_(std::move(limiter_factory)), watchdog_factory_(std::move(watchdog_factory)), sec_policy_factory_(std::move(sec_policy_factory)) {}
 
-ExecutionResult Executor::execute(const Command &cmd) {
+ExecutionResult Executor::execute(Job &job) {
     ExecutionResult result;
-    if (cmd.isEmpty()) {
+    if (job.cmd.isEmpty()) {
         result.success = true;
         return result;
     }
 
-    if (cmd.executable == "cd" || cmd.executable == "exit") {
-        result.success = handleBuiltin(cmd);
+    if (job.cmd.executable == "cd" || job.cmd.executable == "exit") {
+        result.success = handleBuiltin(job.cmd);
         result.exit_code = result.success ? 0 : 1;
         return result;
     }
@@ -24,7 +24,7 @@ ExecutionResult Executor::execute(const Command &cmd) {
     auto limiter = limiter_factory_ ? limiter_factory_() : nullptr;
     auto watchdog = watchdog_factory_ ? watchdog_factory_() : nullptr;
     auto sec_policy = sec_policy_factory_ ? sec_policy_factory_() : nullptr;
-    return isolator_->isolateAndRun(cmd, limiter.get(), watchdog.get(), sec_policy.get());
+    return isolator_->isolateAndRun(job.cmd, job.pid, job.time_quantum, limiter.get(), watchdog.get(), sec_policy.get());
 }
 
 bool Executor::handleBuiltin(const Command &cmd) {
@@ -58,7 +58,9 @@ ExecutionResult Executor::executePipeline(const std::vector<Command> &pipeline) 
         return result;
 
     if (pipeline.size() == 1) {
-        return execute(pipeline[0]);
+        Job j;
+        j.cmd = pipeline[0];
+        return execute(j);
     }
 
     int prev_fd = -1;

@@ -64,7 +64,8 @@ int main() {
         Command cmd = Parser::parseLine(line);
         if (!cmd.isEmpty()) {
             if (cmd.executable == "cd" || cmd.executable == "exit") {
-                executor.execute(cmd);
+                Job j; j.cmd = cmd;
+                executor.execute(j);
             } else {
                 auto promise = std::make_shared<std::promise<int>>();
                 std::future<int> future = promise->get_future();

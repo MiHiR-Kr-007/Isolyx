@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "Job.hpp"
 
 using ResourceLimiterFactory = std::function<std::unique_ptr<IResourceLimiter>()>;
 using WatchdogFactory = std::function<std::unique_ptr<IWatchdog>()>;
@@ -18,7 +19,7 @@ public:
              WatchdogFactory watchdog_factory = nullptr,
              SecurityPolicyFactory sec_policy_factory = nullptr);
 
-    ExecutionResult execute(const Command &cmd);
+    ExecutionResult execute(Job &job);
     ExecutionResult executePipeline(const std::vector<Command> &pipeline);
     void reapZombies();
 
