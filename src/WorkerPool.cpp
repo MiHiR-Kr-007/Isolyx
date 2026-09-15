@@ -46,6 +46,8 @@ void WorkerPool::workerLoop() {
         job_result.exit_code = exec_result.exit_code;
         job_result.term_signal = exec_result.term_signal;
         job_result.command_line = job_opt->cmd.executable;
+        job_result.stdout_out = exec_result.stdout_out;
+        job_result.stderr_out = exec_result.stderr_out;
 
         if (exec_result.success) {
             job_result.verdict = "SUCCESS";

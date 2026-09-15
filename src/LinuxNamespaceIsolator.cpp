@@ -11,6 +11,10 @@
 #include <unistd.h>
 #include <vector>
 #include <seccomp.h>
+#include <sys/mman.h>
+#include <atomic>
+
+static std::atomic<int> file_counter{1};
 
 struct CloneArgs {
     const char *executable;
@@ -20,6 +24,8 @@ struct CloneArgs {
     const char *output_file;
     int sync_fd;
     scmp_filter_ctx seccomp_ctx;
+    char host_out_file[64];
+    char host_err_file[64];
 };
 
 #include <stdio.h>
@@ -89,6 +95,20 @@ static int child_entry(void *arg) {
         }
         dup2(fd, STDOUT_FILENO);
         close(fd);
+    } else if (args->host_out_file[0] != '\0') {
+        int fd = open(args->host_out_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd != -1) {
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+        }
+    }
+
+    if (args->host_err_file[0] != '\0') {
+        int fd = open(args->host_err_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd != -1) {
+            dup2(fd, STDERR_FILENO);
+            close(fd);
+        }
     }
 
     if (args->input_file != nullptr) {
@@ -121,10 +141,14 @@ static int child_entry(void *arg) {
 LinuxNamespaceIsolator::LinuxNamespaceIsolator(std::unique_ptr<IRootfsProvider> rootfs_provider)
     : rootfs_provider_(std::move(rootfs_provider)) {}
 
-ExecutionResult LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, pid_t& pid, int time_quantum, IResourceLimiter *limiter, IWatchdog *watchdog, ISecurityPolicy *sec_policy) {
+ExecutionResult LinuxNamespaceIsolator::isolateAndRun(
+    const Command &cmd, pid_t& pid, int& unique_id, int time_quantum, 
+    IResourceLimiter* limiter, IWatchdog* watchdog, ISecurityPolicy* sec_policy) {
     ExecutionResult result;
     if (cmd.isEmpty())
         return result;
+
+    std::string absolute_rootfs = rootfs_provider_->prepareRootfs();
 
     if (pid <= 0) {
         std::vector<char *> raw_args;
@@ -132,8 +156,6 @@ ExecutionResult LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, pid_t&
             raw_args.push_back(const_cast<char *>(arg.c_str()));
         }
         raw_args.push_back(nullptr);
-
-        std::string absolute_rootfs = rootfs_provider_->prepareRootfs();
 
         int sync_pipe[2];
         if (pipe(sync_pipe) == -1) {
@@ -149,6 +171,12 @@ ExecutionResult LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, pid_t&
         c_args.input_file = cmd.redirectInput.empty() ? nullptr : cmd.redirectInput.c_str();
         c_args.sync_fd = sync_pipe[0];
         c_args.seccomp_ctx = sec_policy ? sec_policy->getContext() : nullptr;
+        
+        if (unique_id == 0) {
+            unique_id = file_counter.fetch_add(1);
+        }
+        snprintf(c_args.host_out_file, sizeof(c_args.host_out_file), "/tmp/isolyx_out_%d", unique_id);
+        snprintf(c_args.host_err_file, sizeof(c_args.host_err_file), "/tmp/isolyx_err_%d", unique_id);
 
         auto stack = std::make_unique<char[]>(STACK_SIZE);
         char *stack_top = stack.get() + STACK_SIZE;
@@ -161,7 +189,6 @@ ExecutionResult LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, pid_t&
             perror("[Isolyx] clone() failed");
             return result;
         }
-
         pid = child_pid;
 
         if (limiter) {
@@ -276,6 +303,28 @@ ExecutionResult LinuxNamespaceIsolator::isolateAndRun(const Command &cmd, pid_t&
             watchdog->stop();
         }
         rootfs_provider_->teardownRootfs();
+
+        auto read_and_delete = [](const std::string &path) -> std::string {
+            int fd = open(path.c_str(), O_RDONLY);
+            if (fd == -1) return "";
+            std::string out;
+            char buf[4096];
+            ssize_t bytes;
+            while ((bytes = read(fd, buf, sizeof(buf))) > 0) {
+                out.append(buf, bytes);
+            }
+            close(fd);
+            unlink(path.c_str());
+            return out;
+        };
+
+        if (unique_id > 0) {
+            std::string out_path = absolute_rootfs + "/tmp/isolyx_out_" + std::to_string(unique_id);
+            std::string err_path = absolute_rootfs + "/tmp/isolyx_err_" + std::to_string(unique_id);
+            std::cerr << "[Isolyx] Trying to read: " << out_path << std::endl;
+            result.stdout_out = read_and_delete(out_path);
+            result.stderr_out = read_and_delete(err_path);
+        }
     }
 
     return result;

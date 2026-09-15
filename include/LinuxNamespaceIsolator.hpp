@@ -8,7 +8,7 @@ public:
     explicit LinuxNamespaceIsolator(std::unique_ptr<IRootfsProvider> rootfs_provider);
     ~LinuxNamespaceIsolator() override = default;
 
-    ExecutionResult isolateAndRun(const Command &cmd, pid_t& pid, int time_quantum, IResourceLimiter* limiter = nullptr, IWatchdog* watchdog = nullptr, ISecurityPolicy* sec_policy = nullptr) override;
+    ExecutionResult isolateAndRun(const Command &cmd, pid_t& pid, int& unique_id, int time_quantum, IResourceLimiter* limiter = nullptr, IWatchdog* watchdog = nullptr, ISecurityPolicy* sec_policy = nullptr) override;
 
 private:
     std::unique_ptr<IRootfsProvider> rootfs_provider_;

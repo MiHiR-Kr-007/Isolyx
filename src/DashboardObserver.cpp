@@ -4,6 +4,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <iostream>
+#include "json.hpp"
+
+using json = nlohmann::json;
 
 DashboardObserver::DashboardObserver(const std::string& pipe_path) : pipe_path_(pipe_path) {
     if (mkfifo(pipe_path_.c_str(), 0666) == -1) {
@@ -26,13 +29,14 @@ void DashboardObserver::writeToPipe(const std::string& data) {
 }
 
 void DashboardObserver::onResult(const JobResult &result) {
-    std::string json = "{";
-    json += "\"job_id\": " + std::to_string(result.job_id) + ", ";
-    json += "\"command_line\": \"" + result.command_line + "\", ";
-    json += "\"verdict\": \"" + result.verdict + "\", ";
-    json += "\"exit_code\": " + std::to_string(result.exit_code) + ", ";
-    json += "\"term_signal\": " + std::to_string(result.term_signal);
-    json += "}";
+    json j;
+    j["job_id"] = result.job_id;
+    j["command_line"] = result.command_line;
+    j["verdict"] = result.verdict;
+    j["exit_code"] = result.exit_code;
+    j["term_signal"] = result.term_signal;
+    j["stdout_out"] = result.stdout_out;
+    j["stderr_out"] = result.stderr_out;
     
-    writeToPipe(json);
+    writeToPipe(j.dump());
 }

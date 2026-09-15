@@ -24,7 +24,7 @@ ExecutionResult Executor::execute(Job &job) {
     auto limiter = limiter_factory_ ? limiter_factory_() : nullptr;
     auto watchdog = watchdog_factory_ ? watchdog_factory_() : nullptr;
     auto sec_policy = sec_policy_factory_ ? sec_policy_factory_() : nullptr;
-    return isolator_->isolateAndRun(job.cmd, job.pid, job.time_quantum, limiter.get(), watchdog.get(), sec_policy.get());
+    return isolator_->isolateAndRun(job.cmd, job.pid, job.unique_id, job.time_quantum, limiter.get(), watchdog.get(), sec_policy.get());
 }
 
 bool Executor::handleBuiltin(const Command &cmd) {

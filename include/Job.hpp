@@ -18,4 +18,5 @@ struct Job {
     pid_t pid = -1;
     int time_quantum = 0;   // 0 means non-preemptive
     int elapsed_bursts = 0; // for MLFQ demotion
+    int unique_id = 0;
 };

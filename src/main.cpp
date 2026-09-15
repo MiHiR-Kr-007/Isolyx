@@ -21,6 +21,13 @@
 #include <termios.h>
 #include <unistd.h>
 #include <future>
+#include <fstream>
+#include <atomic>
+#include <thread>
+#include <sys/stat.h>
+#include "json.hpp"
+
+using json = nlohmann::json;
 
 int main() {
     auto rootfs_provider = std::make_unique<PerLanguageRootfsProvider>();
@@ -60,7 +67,37 @@ int main() {
     tcgetattr(STDIN_FILENO, &orig_termios);
     pid_t isolyx_pgid = getpgrp();
 
-    uint64_t next_job_id = 1;
+    std::atomic<uint64_t> next_job_id{1};
+
+    std::thread daemon_thread([&job_queue, &next_job_id]() {
+        const char* pipe_path = "/tmp/isolyx_cmds";
+        mkfifo(pipe_path, 0666);
+        while (true) {
+            std::ifstream pipe(pipe_path);
+            std::string line;
+            while (std::getline(pipe, line)) {
+                if (line.empty()) continue;
+                try {
+                    auto j = json::parse(line);
+                    Command cmd;
+                    cmd.executable = j.value("executable", "");
+                    if (j.contains("args")) {
+                        for (auto& arg : j["args"]) {
+                            cmd.arguments.push_back(arg.get<std::string>());
+                        }
+                    }
+                    cmd.isBackground = true; // Daemon jobs are always background
+                    
+                    auto promise = std::make_shared<std::promise<int>>();
+                    Job job{next_job_id++, cmd, promise};
+                    job_queue.enqueue(std::move(job));
+                } catch (...) {
+                    std::cerr << "[Daemon] Failed to parse incoming job\n";
+                }
+            }
+        }
+    });
+    daemon_thread.detach();
 
     std::string line;
     while (true) {
